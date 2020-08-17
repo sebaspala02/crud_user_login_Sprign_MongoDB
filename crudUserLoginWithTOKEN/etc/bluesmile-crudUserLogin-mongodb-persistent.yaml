@@ -1,0 +1,163 @@
+apiVersion: v1
+kind: Template
+labels:
+  app: bluesmile-user-mongodb
+metadata:
+  annotations:
+    description: BlueSmile CRUD service persistent template for MongoDB
+  name: bluesmile-user-mongodb
+objects:
+# user Service
+- apiVersion: v1
+  kind: Service
+  metadata:
+    labels:
+      application: user-mongodb
+    name: user-mongodb
+  spec:
+    ports:
+    - name: mongo
+      port: 27017
+      protocol: TCP
+      targetPort: 27017
+    selector:
+      deploymentconfig: user-mongodb
+    sessionAffinity: None
+    type: ClusterIP
+- apiVersion: v1
+  kind: DeploymentConfig
+  metadata:
+    labels:
+      application: user-mongodb
+    name: user-mongodb
+  spec:
+    replicas: 1
+    selector:
+      deploymentconfig: user-mongodb
+    strategy:
+      recreateParams:
+        post:
+          execNewPod:
+            command:
+              - /bin/sh
+              - -i
+              - -c
+              - sleep 10 && /opt/rh/rh-mongodb32/root/usr/bin/mongo $USER_MONGODB_SERVICE_HOST:27017/$MONGODB_DATABASE -u $MONGODB_USER -p $MONGODB_PASSWORD
+                --eval="$MONGODB_INIT"
+            containerName: user-mongodb
+            env:
+            - name: MONGODB_INIT
+              value: db.user.insert({"id":"2","name":"Red Fedora","lastname":"Official Red Hat Fedora","email":"samplej@emplo.com","password":"12ui3oi1","createdAt":""});
+                db.user.insert({"id":"1","name":"Black Centos","lastname":"Red Hat","email":"rhop@red.com","password":"12ui3oi1","createdAt":""});
+          failurePolicy: ignore
+        timeoutSeconds: 600
+      resources: {}
+      type: Recreate
+    template:
+      metadata:
+        labels:
+          application: user-mongodb
+          deploymentconfig: user-mongodb
+      spec:
+        containers:
+        - env:
+          - name: KUBERNETES_NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
+          - name: MONGODB_USER
+            value: ${USER_DB_USERNAME}
+          - name: MONGODB_PASSWORD
+            value: ${USER_DB_PASSWORD}
+          - name: MONGODB_DATABASE
+            value: ${USER_DATABASE}
+          - name: MONGODB_ADMIN_PASSWORD
+            value: ${USER_DB_PASSWORD}
+          image: mongodb
+          imagePullPolicy: IfNotPresent
+          livenessProbe:
+            failureThreshold: 10
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            successThreshold: 1
+            tcpSocket:
+              port: 27017
+            timeoutSeconds: 1
+          name: user-mongodb
+          ports:
+          - containerPort: 27017
+            protocol: TCP
+          readinessProbe:
+            exec:
+              command:
+              - /bin/sh
+              - -i
+              - -c
+              - mongo 127.0.0.1:27017/$MONGODB_DATABASE -u $MONGODB_USER -p $MONGODB_PASSWORD
+                --eval="quit()"
+            failureThreshold: 10
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+          resources:
+            limits:
+              cpu: 500m
+              memory: 1Gi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+          securityContext:
+            capabilities: {}
+            privileged: false
+          terminationMessagePath: /dev/termination-log
+          volumeMounts:
+          - mountPath: /var/lib/mongodb/data
+            name: mongodb-data
+        dnsPolicy: ClusterFirst
+        restartPolicy: Always
+        securityContext: {}
+        terminationGracePeriodSeconds: 30
+        volumes:
+        - name: mongodb-data
+          persistentVolumeClaim:
+            claimName: mongodb-data-pv
+    test: false
+    triggers:
+    - imageChangeParams:
+        automatic: true
+        containerNames:
+        - user-mongodb
+        from:
+          kind: ImageStreamTag
+          name: mongodb:3.2
+          namespace: openshift
+      type: ImageChange
+    - type: ConfigChange
+- apiVersion: v1
+  kind: PersistentVolumeClaim
+  metadata:
+    labels:
+      application: user-mongodb
+    name: mongodb-data-pv
+  spec:
+    accessModes:
+    - ReadWriteOnce
+    resources:
+      requests:
+        storage: 1Gi
+parameters:
+- description: user Service database user name
+  from: user[a-zA-Z0-9]{3}
+  generate: expression
+  name: USER_DB_USERNAME
+  required: true
+- description: user Service database user password
+  from: '[a-zA-Z0-9]{8}'
+  generate: expression
+  name: USER_DB_PASSWORD
+  required: true
+- description: user Service database name
+  name: USER_DATABASE
+  required: true
+  value: userdb

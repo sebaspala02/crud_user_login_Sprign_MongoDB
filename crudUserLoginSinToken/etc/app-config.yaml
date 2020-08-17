@@ -1,0 +1,5 @@
+catalog.http.port: 8080
+connection_string: mongodb://user-mongodb:27017
+db_name: userdb
+username: mongo
+password: mongo
